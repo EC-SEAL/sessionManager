@@ -13,6 +13,7 @@ import eu.esmo.sessionmng.pojo.DataStoreObject;
 import eu.esmo.sessionmng.pojo.NewUpdateDataRequest;
 import eu.esmo.sessionmng.pojo.SessionMngrResponse;
 import eu.esmo.sessionmng.service.NewSessionService;
+import eu.esmo.sessionmng.service.SessionService;
 import io.swagger.annotations.ApiOperation;
 import java.util.HashMap;
 import java.util.List;
@@ -42,13 +43,24 @@ public class NewAPIRest {
     @Autowired
     NewSessionService sessionServ;
 
+    @Autowired
+    SessionService oldSessionServ;
+
     @RequestMapping(value = "/startSession", method = RequestMethod.POST, produces = "application/json", consumes = {"application/x-www-form-urlencoded"})
     @ResponseStatus(code = HttpStatus.OK)
     @ApiOperation(value = "Starts a new session, by setting the code to NEW and the identifier at sessionData.sessionId", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
-    SessionMngrResponse startSession() {
-        UUID sessionId = UUID.randomUUID();
-        sessionServ.makeNewSession(sessionId.toString());
+    SessionMngrResponse startSession(@RequestParam(required = false) String sessionId) {
+        if (sessionId == null) {
+            UUID nsessionId = UUID.randomUUID();
+            sessionId = nsessionId.toString();
+        }
+        if (oldSessionServ.findBySessionId(sessionId) == null) {
+            oldSessionServ.makeNewSession(sessionId);
+
+        }
+        sessionServ.makeNewSession(sessionId);
+
         log.info("created new session with Id:: " + sessionId.toString());
         return new SessionMngrResponse(ResponseCode.NEW, new MngrSessionTO(sessionId.toString(), new HashMap()), null, null);
     }
