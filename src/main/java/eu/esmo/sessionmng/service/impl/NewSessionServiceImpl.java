@@ -93,7 +93,7 @@ public class NewSessionServiceImpl implements NewSessionService {
         if (session.isPresent()) {
             session.get().remove(id);
             cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
-            cm.getCache(SESSION_CACHE_NAME).put(sessionId, session);
+            cm.getCache(SESSION_CACHE_NAME).put(sessionId, session.get());
             return "OK";
         }
         return "ERROR";

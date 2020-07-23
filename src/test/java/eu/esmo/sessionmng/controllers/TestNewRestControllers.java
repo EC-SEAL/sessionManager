@@ -251,7 +251,7 @@ public class TestNewRestControllers {
     }
 
     @Test
-    public void addToSessionAndDelete() throws Exception {
+    public void add2ToSessionAndDelete1AndGetSecond() throws Exception {
         Date date = new Date();
         SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
         formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
@@ -292,6 +292,28 @@ public class TestNewRestControllers {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code", is("OK")));
 
+        resp = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class);
+        sessionId = resp.getSessionData().getSessionId();
+
+        update = new NewUpdateDataRequest(sessionId, "dataSet", "\"{\"the\":\"object2\"}\"", "id2");
+        updateString = mapper.writeValueAsString(update);
+        digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes()); // post parameters are added as uri parameters not in the body when form-encoding
+
+        date = new Date();
+        nowDate = formatter.format(date);
+        mvc.perform(post("/sm/new/add")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/add", update, "application/json", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateString.getBytes())
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code", is("OK")));
+
         update = new NewUpdateDataRequest(sessionId, null, null, "id");
         updateString = mapper.writeValueAsString(update);
         digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes()); // post parameters are added as uri parameters not in the body when form-encoding
@@ -309,6 +331,26 @@ public class TestNewRestControllers {
                 .andDo(MockMvcResultHandlers.print())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code", is("OK")));
+
+        date = new Date();
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        requestId = UUID.randomUUID().toString();
+        String authHeader = sigServ.generateSignature("hostUrl", "GET", "/sm/new/get", null, "application/x-www-form-urlencoded", requestId);
+        mvc.perform(get("/sm/new/get")
+                .header("authorization", authHeader)
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .param("sessionId", sessionId)
+                .param("id", "id2")
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code", is("OK")))
+                .andExpect(jsonPath("$.additionalData", is("{\"id\":\"id2\",\"type\":\"dataSet\",\"data\":\"\\\"{\\\"the\\\":\\\"object2\\\"}\\\"\"}")));
 
     }
 
