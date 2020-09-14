@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import eu.esmo.sessionmng.pojo.DataStoreObject;
 import eu.esmo.sessionmng.service.NewSessionService;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +39,7 @@ public class NewSessionServiceImpl implements NewSessionService {
     @Override
     public void makeNewSession(String sessionId) {
         Map<String, DataStoreObject> session = new ConcurrentHashMap<>();
+        cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
         cm.getCache(SESSION_CACHE_NAME).put(sessionId, session);
     }
 
@@ -50,11 +52,18 @@ public class NewSessionServiceImpl implements NewSessionService {
                 log.info("Object was found with objectId" + objectId + "for session" + sessionId);
             }
             session.put(objectId, new DataStoreObject(objectId, type, object));
-            cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
-            cm.getCache(SESSION_CACHE_NAME).put(sessionId, session);
+            this.cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
+            this.cm.getCache(SESSION_CACHE_NAME).put(sessionId, session);
             return "OK";
+        } else {
+            Map<String, DataStoreObject> session = new ConcurrentHashMap<>();
+            session.put(objectId, new DataStoreObject(objectId, type, object));
+            this.cm.getCache(SESSION_CACHE_NAME).put(sessionId, session);
+
+            return "OK";
+
         }
-        return "ERROR";
+//        return "ERROR";
     }
 
     @Override
@@ -91,9 +100,15 @@ public class NewSessionServiceImpl implements NewSessionService {
     public String delete(String sessionId, String id) {
         Optional<Map<String, DataStoreObject>> session = readFromCache(sessionId);
         if (session.isPresent()) {
-            session.get().remove(id);
-            cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
-            cm.getCache(SESSION_CACHE_NAME).put(sessionId, session.get());
+            if (id == null) {
+                this.cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
+                this.cm.getCache(SESSION_CACHE_NAME).put(sessionId, new HashMap<String, DataStoreObject>());
+            } else {
+                session.get().remove(id);
+                this.cm.getCache(SESSION_CACHE_NAME).evict(sessionId);
+                this.cm.getCache(SESSION_CACHE_NAME).put(sessionId, session.get());
+            }
+
             return "OK";
         }
         return "ERROR";
@@ -113,10 +128,15 @@ public class NewSessionServiceImpl implements NewSessionService {
     }
 
     private Optional<Map<String, DataStoreObject>> readFromCache(String key) {
-        if (cm.getCache(SESSION_CACHE_NAME).get(key) == null) {
+        if (this.cm.getCache(SESSION_CACHE_NAME).get(key) == null) {
             return Optional.empty();
         }
-        return Optional.of((Map<String, DataStoreObject>) cm.getCache(SESSION_CACHE_NAME).get(key).get());
+        return Optional.of((Map<String, DataStoreObject>) this.cm.getCache(SESSION_CACHE_NAME).get(key).get());
+    }
+
+    @Override
+    public boolean checkSession(String sessionId) {
+        return readFromCache(sessionId).isPresent();
     }
 
 }

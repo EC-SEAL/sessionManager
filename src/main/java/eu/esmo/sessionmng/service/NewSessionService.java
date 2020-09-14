@@ -25,4 +25,6 @@ public interface NewSessionService {
     public String delete(String sessionId, String id);
 
     public List<DataStoreObject> search(String sessionId, String type);
+
+    public boolean checkSession(String sessionId);
 }

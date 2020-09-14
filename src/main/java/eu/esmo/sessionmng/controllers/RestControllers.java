@@ -15,6 +15,7 @@ import eu.esmo.sessionmng.pojo.UpdateDataRequest;
 import eu.esmo.sessionmng.service.BlackListService;
 import eu.esmo.sessionmng.service.JwtService;
 import eu.esmo.sessionmng.service.MSConfigurationService;
+import eu.esmo.sessionmng.service.NewSessionService;
 import eu.esmo.sessionmng.service.ParameterService;
 import eu.esmo.sessionmng.service.SessionService;
 import io.swagger.annotations.ApiOperation;
@@ -64,6 +65,9 @@ public class RestControllers {
     @Autowired
     private MSConfigurationService configServ;
 
+    @Autowired
+    NewSessionService newSessionServ;
+
     @RequestMapping(value = "/startSession", method = RequestMethod.POST, produces = "application/json", consumes = {"application/x-www-form-urlencoded"})
     @ResponseStatus(code = HttpStatus.CREATED)
     @ApiOperation(value = "Sets up an internal session temporary storage and returns its identifier"
@@ -73,6 +77,9 @@ public class RestControllers {
         UUID sessionId = UUID.randomUUID();
         sessionServ.makeNewSession(sessionId.toString());
         LOG.debug("created new session with Id:: " + sessionId.toString());
+        if (!newSessionServ.checkSession(sessionId.toString())) {
+            newSessionServ.makeNewSession(sessionId.toString());
+        }
         return new SessionMngrResponse(ResponseCode.NEW, new MngrSessionTO(sessionId.toString(), new HashMap()), null, null);
     }
 

@@ -553,4 +553,239 @@ public class TestNewRestControllers {
 
     }
 
+    @Test
+    public void startNewSessionAndUpdateSessionDataAndReset() throws Exception {
+
+        Date date = new Date();
+        SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        String nowDate = formatter.format(date);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        String requestId = UUID.randomUUID().toString();
+        Map<String, String> postParams = new HashMap();
+
+        MvcResult result = mvc.perform(post("/sm/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/startSession", null, "application/x-www-form-urlencoded", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /startSession")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        ObjectMapper mapper = new ObjectMapper();
+        SessionMngrResponse resp = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class);
+        String sessionId = resp.getSessionData().getSessionId();
+
+        date = new Date();
+        formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest(("sessionId=" + sessionId).getBytes());
+        requestId = UUID.randomUUID().toString();
+
+        postParams = new HashMap();
+        postParams.put("sessionId", sessionId);
+        result = mvc.perform(post("/sm/new/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/startSession", postParams, "application/x-www-form-urlencoded;charset=UTF-8", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /startSession")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .content(("sessionId=" + sessionId).getBytes())
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertEquals(sessionId, mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class).getSessionData().getSessionId());
+
+        NewUpdateDataRequest update = new NewUpdateDataRequest(sessionId, "dataSet", "\"{\"the\":\"object\"}\"", "id");
+        String updateString = mapper.writeValueAsString(update);
+        digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes()); // post parameters are added as uri parameters not in the body when form-encoding
+
+        date = new Date();
+        nowDate = formatter.format(date);
+        mvc.perform(post("/sm/new/add")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/add", update, "application/json", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateString.getBytes())
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code", is("OK")));
+
+        date = new Date();
+        formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest(("sessionId=" + sessionId).getBytes());
+        requestId = UUID.randomUUID().toString();
+        postParams = new HashMap();
+        postParams.put("sessionId", sessionId);
+        result = mvc.perform(post("/sm/new/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/startSession", postParams, "application/x-www-form-urlencoded;charset=UTF-8", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /startSession")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .content(("sessionId=" + sessionId).getBytes())
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+
+        date = new Date();
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        requestId = UUID.randomUUID().toString();
+        String authHeader = sigServ.generateSignature("hostUrl", "GET", "/sm/new/search", null, "application/x-www-form-urlencoded", requestId);
+        mvc.perform(get("/sm/new/search")
+                .header("authorization", authHeader)
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .param("sessionId", sessionId)
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code", is("OK")))
+                .andExpect(jsonPath("$.additionalData", is("[]")));
+
+    }
+
+    //- After I generate a sessionId using the new API, I cannot make a call to GetSessionData (old API). Throws a Not Found error. Maybe the new sessionId's are not compatible with the old methods or smt?
+    @Test
+    public void startNewSessionGetDataOld() throws Exception {
+
+        Date date = new Date();
+        SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        String nowDate = formatter.format(date);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        String requestId = UUID.randomUUID().toString();
+        Map<String, String> postParams = new HashMap();
+        ObjectMapper mapper = new ObjectMapper();
+
+        MvcResult result = mvc.perform(post("/sm/new/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/startSession", postParams, "application/x-www-form-urlencoded;charset=UTF-8", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .content(("").getBytes())
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+        String sessionId = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class).getSessionData().getSessionId();
+
+        UpdateDataRequest update = new UpdateDataRequest(sessionId, "var1", "dataObject");
+        String updateString = mapper.writeValueAsString(update);
+        digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes()); // post parameters are added as uri parameters not in the body when form-encoding
+
+        nowDate = formatter.format(date);
+        mvc.perform(post("/sm/updateSessionData")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/updateSessionData", update, "application/json", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /updateSessionData")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateString.getBytes())
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code", is("OK")));
+
+        date = new Date();
+        formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        requestId = UUID.randomUUID().toString();
+
+        mvc.perform(get("/sm/getSessionData?sessionId=" + sessionId + "&variableName=var1")
+                .header("authorization", sigServ.generateSignature("hostUrl", "GET", "/sm/getSessionData?sessionId=" + sessionId + "&variableName=var1", null, "application/x-www-form-urlencoded", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+        )
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code", is("OK")))
+                .andExpect(jsonPath("$.sessionData.sessionVariables.var1", is("dataObject")))
+                .andExpect(jsonPath("$.sessionData.sessionVariables.var2").doesNotExist());
+
+    }
+
+    @Test
+    public void startSessionAndThenNewSession() throws Exception {
+
+        Date date = new Date();
+        SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        String nowDate = formatter.format(date);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        String requestId = UUID.randomUUID().toString();
+        Map<String, String> postParams = new HashMap();
+
+        MvcResult result = mvc.perform(post("/sm/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/startSession", null, "application/x-www-form-urlencoded", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /startSession")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded"))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        ObjectMapper mapper = new ObjectMapper();
+        SessionMngrResponse resp = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class);
+        String sessionId = resp.getSessionData().getSessionId();
+
+        date = new Date();
+        formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        nowDate = formatter.format(date);
+        digest = MessageDigest.getInstance("SHA-256").digest(("sessionId=" + sessionId).getBytes());
+        requestId = UUID.randomUUID().toString();
+
+        postParams = new HashMap();
+        postParams.put("sessionId", sessionId);
+        result = mvc.perform(post("/sm/new/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/new/startSession", postParams, "application/x-www-form-urlencoded;charset=UTF-8", requestId))
+                .header("host", "hostUrl")
+                //                .header("(request-target)", "POST /startSession")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .content(("sessionId=" + sessionId).getBytes())
+        )
+                .andExpect(status().isOk())
+                .andReturn();
+
+        resp = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class);
+        String sessionId2 = resp.getSessionData().getSessionId();
+
+        assertEquals(sessionId, sessionId2);
+    }
+
 }
