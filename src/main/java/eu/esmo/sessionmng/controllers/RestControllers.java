@@ -5,11 +5,13 @@
  */
 package eu.esmo.sessionmng.controllers;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import eu.esmo.sessionmng.enums.ResponseCode;
 import eu.esmo.sessionmng.factory.MngrSessionFactory;
 import eu.esmo.sessionmng.factory.SessionMngrResponseFactory;
 import eu.esmo.sessionmng.model.TO.MngrSessionTO;
 import eu.esmo.sessionmng.pojo.JwtValidationResponse;
+import eu.esmo.sessionmng.pojo.RequestParameters;
 import eu.esmo.sessionmng.pojo.SessionMngrResponse;
 import eu.esmo.sessionmng.pojo.UpdateDataRequest;
 import eu.esmo.sessionmng.service.BlackListService;
@@ -149,6 +151,32 @@ public class RestControllers {
             if (sessionServ.findBySessionId(sessionId) == null) {
                 throw new ChangeSetPersister.NotFoundException();
             }
+            String jwt = jwtServ.makeJwt(sessionId, data, paramServ.getProperty("ISSUER"), sender, receiver, Long.valueOf(paramServ.getProperty("EXPIRES")));
+            return new SessionMngrResponse(ResponseCode.NEW, null, jwt, null);
+        } catch (ChangeSetPersister.NotFoundException e) {
+            LOG.error(e.getMessage());
+            return new SessionMngrResponse(ResponseCode.ERROR, null, null, "sessionId not found");
+        } catch (Exception e) {
+            LOG.error(e.getMessage());
+            return new SessionMngrResponse(ResponseCode.ERROR, null, null, "error making jwt");
+        }
+    }
+
+    @RequestMapping(value = "/generateTokenWithPayload", method = RequestMethod.POST, produces = "application/json")
+    @ApiOperation(value = "Generates a signed token, only the sessionId as the payload, additionaly parameters include:"
+            + " The id of the requesting microservice (msA) and The id of the destination microservice (msB), may also include additional data"
+            + " Responds by code: New, additionalData: the jwt token")
+    public SessionMngrResponse generateTokenWithPayload(
+            @RequestParam String sessionId,
+            @RequestParam(required = true) String sender,
+            @RequestParam(required = true) String receiver,
+            @RequestBody RequestParameters requestParameters) {
+        try {
+            if (sessionServ.findBySessionId(sessionId) == null) {
+                throw new ChangeSetPersister.NotFoundException();
+            }
+            ObjectMapper mapper = new ObjectMapper();
+            String data = mapper.writeValueAsString(requestParameters);
             String jwt = jwtServ.makeJwt(sessionId, data, paramServ.getProperty("ISSUER"), sender, receiver, Long.valueOf(paramServ.getProperty("EXPIRES")));
             return new SessionMngrResponse(ResponseCode.NEW, null, jwt, null);
         } catch (ChangeSetPersister.NotFoundException e) {

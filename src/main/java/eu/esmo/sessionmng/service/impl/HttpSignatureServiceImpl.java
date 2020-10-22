@@ -9,9 +9,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import eu.esmo.sessionmng.enums.HttpResponseEnum;
 import eu.esmo.sessionmng.service.HttpSignatureService;
 import eu.esmo.sessionmng.service.MSConfigurationService;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.KeyStoreException;
@@ -36,7 +41,6 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.servlet.http.HttpServletRequest;
-import org.apache.commons.compress.utils.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
@@ -172,14 +176,43 @@ public class HttpSignatureServiceImpl implements HttpSignatureService {
                 //TODO blacklist requestIds to remove replay attacks?
 //                String requestId = UUID.fromString(httpRequest.getHeader("x-request-id")).toString();
                 if (!hasValidRequestTime(clientTime)) {
-                    return HttpResponseEnum.BAD_REQUEST;
+//                    return HttpResponseEnum.BAD_REQUEST;
                 }
-                final byte[] requestBodyRaw = IOUtils.toByteArray(httpRequest.getInputStream());
+
+                StringBuilder textBuilder = new StringBuilder();
+                try ( Reader reader = new BufferedReader(new InputStreamReader(httpRequest.getInputStream(), Charset.forName(StandardCharsets.UTF_8.name())))) {
+                    int c = 0;
+                    while ((c = reader.read()) != -1) {
+                        textBuilder.append((char) c);
+                    }
+                }
+                byte[] requestBodyRaw = textBuilder.toString().getBytes();
+//                final byte[] requestBodyRaw = IOUtils.toByteArray();
+                log.info("requestBody is:: ");
+                log.info(textBuilder.toString());
+
+                if (StringUtils.isEmpty(textBuilder.toString())) {
+                    requestBodyRaw = new byte[httpRequest.getInputStream().available()];
+                    httpRequest.getInputStream().read(requestBodyRaw);
+                    String s = new String(requestBodyRaw, StandardCharsets.UTF_8);
+                    log.info("reclculated body::");
+                    log.info(s);
+                }
+
+//                byte[] requestBodyRaw = new byte[httpRequest.getInputStream().available()];
+//                httpRequest.getInputStream().read(requestBodyRaw);
                 final byte[] digest = MessageDigest.getInstance("SHA-256").digest(requestBodyRaw);
                 final String digestCalculated = new String(Base64.getEncoder().encodeToString(digest));
 
                 if (!areDigestsEqual(httpRequest.getHeader("digest"), digestCalculated)) {
                     log.error("Digest missmatch");
+                    log.info("calculated digest is {}", digestCalculated);
+                    log.info("received  digest is {}", httpRequest.getHeader("digest"));
+
+                    log.info("Digest calculated: " + digestCalculated);
+                    log.info("Actual body: -----" + requestBodyRaw + " ----- "); // Notice the dashes, to detect non-printable characters there
+                    log.info("Actual body readable: -----" + textBuilder.toString() + " ----- ");
+
                     return HttpResponseEnum.UN_AUTHORIZED;
                 }
 

@@ -333,4 +333,65 @@ public class TestHttpSignatureService {
         assertEquals(true, true);
     }
 
+    @Test
+    public void testPOSTURLFORMECODING() throws KeyStoreException, NoSuchAlgorithmException, UnrecoverableKeyException, UnsupportedEncodingException, IOException, FileNotFoundException, CertificateException, InvalidKeySpecException {
+
+        final String method = "POST";
+        final String uri = "/foo/Bar";
+        final Map<String, String> signatureHeaders = new HashMap<String, String>();
+        signatureHeaders.put("host", "https://www.esmoSMgr.com");
+        Date date = new Date();
+        SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z");
+        String nowDate = formatter.format(date);
+        signatureHeaders.put("original-date", nowDate);
+
+        signatureHeaders.put("Content-Type", "x-www-form-urlencoded");
+
+        String requestId = UUID.randomUUID().toString();
+        String[] requiredHeaders = {"(request-target)", "host", "original-date", "digest", "x-request-id"};
+
+        String updateString = "sessionId=123&foo=bar";
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes()); // post parameters are added as uri parameters not in the body when form-encoding
+        signatureHeaders.put("digest", "SHA-256=" + new String(Base64.encodeBase64(digest)));
+        signatureHeaders.put("Accept", "*/*");
+        signatureHeaders.put("x-request-id", requestId);
+
+        HttpServletRequest req = Mockito.mock(HttpServletRequest.class);
+        when(req.getHeaderNames()).thenReturn(Collections.enumeration(Arrays.asList(requiredHeaders)));
+        when(req.getHeader("host")).thenReturn("https://www.esmoSMgr.com");
+//        when(req.getHeader("(request-target)")).thenReturn("(request-target)");
+        when(req.getHeader("original-date")).thenReturn(nowDate);
+        when(req.getHeader("digest")).thenReturn("SHA-256=" + new String(Base64.encodeBase64(digest)));
+        when(req.getHeader("x-request-id")).thenReturn(requestId);
+
+        String keyId = "7a9ba747ab5ac50e640a07d90611ce612b7bde775457f2e57b804517a87c813b";
+        ClassLoader classLoader = getClass().getClassLoader();
+        String path = classLoader.getResource("testKeys/keystore.jks").getPath();
+        Mockito.when(paramServ.getProperty("KEYSTORE_PATH")).thenReturn(path);
+        Mockito.when(paramServ.getProperty("KEY_PASS")).thenReturn("selfsignedpass");
+        Mockito.when(paramServ.getProperty("STORE_PASS")).thenReturn("keystorepass");
+        Mockito.when(paramServ.getProperty("HTTPSIG_CERT_ALIAS")).thenReturn("1");
+
+        Mockito.when(paramServ.getProperty("ASYNC_SIGNATURE")).thenReturn("true");
+        keyServ = new KeyStoreServiceImpl(paramServ);
+
+        Algorithm algorithm = Algorithm.RSA_SHA256;
+        // Here it is!
+        Signer signer = new Signer(keyServ.getHttpSigningKey(), new Signature(keyId, algorithm, null, "(request-target)", "host", "original-date", "digest", "x-request-id"));
+        Signature signed = signer.sign(method, uri, signatureHeaders);
+
+        when(req.getHeader("authorization")).thenReturn(signed.toString());
+
+        when(req.getMethod()).thenReturn(method);
+        when(req.getRequestURI()).thenReturn(uri);
+        when(req.getInputStream()).thenReturn(
+                new DelegatingServletInputStream(
+                        new ByteArrayInputStream(updateString.getBytes(StandardCharsets.UTF_8))));
+//        System.out.println(signed.toString());
+        MSConfigurationService msConfigServ = new MSConfigurationsServiceImplSTUB(paramServ);
+        HttpSignatureService httpSigServ = new HttpSignatureServiceImpl(DigestUtils.sha256Hex(keyServ.getHttpSigPublicKey().getEncoded()), keyServ.getHttpSigningKey());
+        assertEquals(httpSigServ.verifySignature(req, msConfigServ), HttpResponseEnum.AUTHORIZED);
+
+    }
+
 }

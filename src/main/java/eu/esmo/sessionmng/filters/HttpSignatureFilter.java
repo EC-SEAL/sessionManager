@@ -28,8 +28,9 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,7 @@ import org.springframework.web.filter.GenericFilterBean;
  *
  * @author nikos
  */
+@Slf4j
 public class HttpSignatureFilter extends GenericFilterBean {
 
     private final HttpSignatureService sigServ;
@@ -56,17 +58,21 @@ public class HttpSignatureFilter extends GenericFilterBean {
 
         try {
 
-            final HttpServletRequest currentRequest = (HttpServletRequest) request;
+            request.setCharacterEncoding("UTF-8");
 
+            final HttpServletRequest currentRequest = (HttpServletRequest) request;
             if (currentRequest.getMethod().toLowerCase().equals("post")) {
-                MultiReadHttpServletRequest multiReadRequest = new MultiReadHttpServletRequest(currentRequest);
-                boolean result = sigServ.verifySignature((HttpServletRequest) multiReadRequest, confServ).equals(HttpResponseEnum.AUTHORIZED);
+
+                final MultiReadHttpServletRequest wrappedRequest = new MultiReadHttpServletRequest(currentRequest);
+
+                boolean result = sigServ.verifySignature((HttpServletRequest) wrappedRequest, confServ).equals(HttpResponseEnum.AUTHORIZED);
                 if (result) {
-                    chain.doFilter(multiReadRequest, response);
+                    chain.doFilter(wrappedRequest, response);
                 } else {
                     throw new ServletException("Error Validating Http Signature from request");
                 }
 
+//                }
             } else {
                 boolean result = sigServ.verifySignature((HttpServletRequest) request, confServ).equals(HttpResponseEnum.AUTHORIZED);
                 if (result) {
@@ -103,7 +109,7 @@ public class HttpSignatureFilter extends GenericFilterBean {
                 cacheInputStream();
             }
 
-            return new CachedServletInputStream();
+            return new CachedServletInputStream(cachedBytes.toByteArray());
         }
 
         @Override
@@ -120,33 +126,32 @@ public class HttpSignatureFilter extends GenericFilterBean {
         }
 
         /* An inputstream which reads the cached request body */
-        public class CachedServletInputStream extends ServletInputStream {
+        class CachedServletInputStream extends ServletInputStream {
 
-            private ByteArrayInputStream input;
+            private final ByteArrayInputStream buffer;
 
-            public CachedServletInputStream() {
-                /* create a new input stream from the cached request body */
-                input = new ByteArrayInputStream(cachedBytes.toByteArray());
+            public CachedServletInputStream(byte[] contents) {
+                this.buffer = new ByteArrayInputStream(contents);
             }
 
             @Override
             public int read() throws IOException {
-                return input.read();
+                return buffer.read();
             }
 
             @Override
             public boolean isFinished() {
-                throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                return buffer.available() == 0;
             }
 
             @Override
             public boolean isReady() {
-                throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+                return true;
             }
 
             @Override
-            public void setReadListener(ReadListener rl) {
-                throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            public void setReadListener(ReadListener listener) {
+                throw new RuntimeException("Not implemented");
             }
         }
     }

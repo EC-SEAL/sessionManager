@@ -11,6 +11,7 @@ import eu.esmo.sessionmng.enums.ResponseCode;
 import eu.esmo.sessionmng.model.TO.MngrSessionTO;
 import eu.esmo.sessionmng.pojo.DataStoreObject;
 import eu.esmo.sessionmng.pojo.NewUpdateDataRequest;
+import eu.esmo.sessionmng.pojo.RequestParameters;
 import eu.esmo.sessionmng.pojo.SessionMngrResponse;
 import eu.esmo.sessionmng.service.NewSessionService;
 import eu.esmo.sessionmng.service.SessionService;
@@ -46,11 +47,11 @@ public class NewAPIRest {
     @Autowired
     SessionService oldSessionServ;
 
-    @RequestMapping(value = "/startSession", method = RequestMethod.POST, produces = "application/json", consumes = {"application/x-www-form-urlencoded"})
+    @RequestMapping(value = "/startSession/old", method = RequestMethod.POST, produces = "application/json", consumes = {"application/x-www-form-urlencoded"})
     @ResponseStatus(code = HttpStatus.OK)
     @ApiOperation(value = "Starts a new session, by setting the code to NEW and the identifier at sessionData.sessionId", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
-    SessionMngrResponse startSession(@RequestParam(required = false) String sessionId) {
+    SessionMngrResponse startSessionOld(@RequestParam(required = false) String sessionId) {
         if (sessionId == null) {
             UUID nsessionId = UUID.randomUUID();
             sessionId = nsessionId.toString();
@@ -65,11 +66,34 @@ public class NewAPIRest {
         return new SessionMngrResponse(ResponseCode.NEW, new MngrSessionTO(sessionId.toString(), new HashMap()), null, null);
     }
 
+    @RequestMapping(value = "/startSession", method = RequestMethod.POST, produces = "application/json",
+            consumes = {"application/json"})
+    @ResponseStatus(code = HttpStatus.OK)
+    @ApiOperation(value = "Starts a new session, by setting the code to NEW and the identifier at sessionData.sessionId", response = SessionMngrResponse.class, code = 200)
+    public @ResponseBody
+    SessionMngrResponse startSession(
+            //            @RequestParam(required = false) String sessionId
+            @RequestBody RequestParameters params
+    ) {
+        if (params.getSessionId() == null) {
+            UUID nsessionId = UUID.randomUUID();
+            params.setSessionId(nsessionId.toString());
+        }
+        if (oldSessionServ.findBySessionId(params.getSessionId()) == null) {
+            oldSessionServ.makeNewSession(params.getSessionId());
+        }
+        sessionServ.makeNewSession(params.getSessionId());
+
+        log.info("created new session with Id:: " + params.getSessionId().toString());
+        return new SessionMngrResponse(ResponseCode.NEW, new MngrSessionTO(params.getSessionId().toString(), new HashMap()), null, null);
+    }
+
     @RequestMapping(value = "/add", method = RequestMethod.POST, produces = "application/json", consumes = "application/json")
     @ResponseStatus(code = HttpStatus.OK)
     @ApiOperation(value = "adds the givent data, under the provided session and for the given id. Error if no sesion is found", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
     SessionMngrResponse add(@RequestBody(required = false) NewUpdateDataRequest updateRequest, HttpServletRequest req) {
+
         String response = sessionServ.add(updateRequest.getSessionId(), updateRequest.getId(), updateRequest.getType(), updateRequest.getData());
         if (response.equals("ERROR")) {
             return new SessionMngrResponse(ResponseCode.ERROR, null, null, "no session found for " + updateRequest.getSessionId());
@@ -77,7 +101,7 @@ public class NewAPIRest {
         return new SessionMngrResponse(ResponseCode.OK, null, null, null);
     }
 
-    @RequestMapping(value = "/get", method = RequestMethod.GET, produces = "application/json")
+    @RequestMapping(value = "/get/old", method = RequestMethod.GET, produces = "application/json")
     @ApiOperation(value = "returns in the extraData  the object (JSON strigified) for the given session id and object id, or if not object id, the array of all objects for the given sessionID", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
     SessionMngrResponse getSessionData(@RequestParam String sessionId, @RequestParam(required = false) String id) {
@@ -100,6 +124,33 @@ public class NewAPIRest {
         }
     }
 
+    @RequestMapping(value = "/get", method = RequestMethod.POST, produces = "application/json")
+    @ApiOperation(value = "returns in the extraData  the object (JSON strigified) for the given session id and object id, or if not object id, the array of all objects for the given sessionID", response = SessionMngrResponse.class, code = 200)
+    public @ResponseBody
+    SessionMngrResponse getSessionDataUpdated(
+            //            @RequestParam String sessionId,
+            //            @RequestParam(required = false) String id
+            @RequestBody RequestParameters params
+    ) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            if (StringUtils.isEmpty(params.getId())) {
+                List<DataStoreObject> requestedObj = sessionServ.get(params.getSessionId());
+                return new SessionMngrResponse(ResponseCode.OK, null, mapper.writeValueAsString(requestedObj), null);
+            } else {
+                String requestedObj = sessionServ.get(params.getSessionId(), params.getId());
+                if (requestedObj == null) {
+                    return new SessionMngrResponse(ResponseCode.ERROR, null, null, "no session found for " + params.getSessionId() + " or objectId " + params.getId());
+                }
+                return new SessionMngrResponse(ResponseCode.OK, null, requestedObj, null);
+            }
+        } catch (JsonProcessingException ex) {
+            log.error(ex.getMessage());
+            return new SessionMngrResponse(ResponseCode.ERROR, null, null, "error marshalling the objects for session" + params.getSessionId());
+
+        }
+    }
+
     @RequestMapping(value = "/delete", method = RequestMethod.POST, produces = "application/json")
     @ApiOperation(value = "deletes the given object (based on id) from the session", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
@@ -111,7 +162,7 @@ public class NewAPIRest {
         return new SessionMngrResponse(ResponseCode.ERROR, null, null, "no session found for " + deleteRequest.getSessionId());
     }
 
-    @RequestMapping(value = "/search", method = RequestMethod.GET, produces = "application/json")
+    @RequestMapping(value = "/search/old", method = RequestMethod.GET, produces = "application/json")
     @ApiOperation(value = "returns in the extraData field the array of JSON objects matching the given type, or if no type is given all session objects", response = SessionMngrResponse.class, code = 200)
     public @ResponseBody
     SessionMngrResponse searchData(@RequestParam String sessionId, @RequestParam(required = false) String type) {
@@ -130,6 +181,33 @@ public class NewAPIRest {
         } catch (JsonProcessingException ex) {
             log.error(ex.getMessage());
             return new SessionMngrResponse(ResponseCode.ERROR, null, null, "error marshalling the objects for session" + sessionId);
+
+        }
+    }
+
+    @RequestMapping(value = "/search", method = RequestMethod.POST, produces = "application/json")
+    @ApiOperation(value = "returns in the extraData field the array of JSON objects matching the given type, or if no type is given all session objects", response = SessionMngrResponse.class, code = 200)
+    public @ResponseBody
+    SessionMngrResponse searchDataUpdated(
+            //            @RequestParam String sessionId,
+            //            @RequestParam(required = false) String type
+            @RequestBody RequestParameters params
+    ) {
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            if (StringUtils.isEmpty(params.getType())) {
+                List<DataStoreObject> requestedObj = sessionServ.get(params.getSessionId());
+                return new SessionMngrResponse(ResponseCode.OK, null, mapper.writeValueAsString(requestedObj), null);
+            } else {
+                List<DataStoreObject> requestedObj = sessionServ.search(params.getSessionId(), params.getType());
+                if (requestedObj == null) {
+                    return new SessionMngrResponse(ResponseCode.ERROR, null, null, "no session found for " + params.getSessionId());
+                }
+                return new SessionMngrResponse(ResponseCode.OK, null, mapper.writeValueAsString(requestedObj), null);
+            }
+        } catch (JsonProcessingException ex) {
+            log.error(ex.getMessage());
+            return new SessionMngrResponse(ResponseCode.ERROR, null, null, "error marshalling the objects for session" + params.getSessionId());
 
         }
     }

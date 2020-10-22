@@ -12,6 +12,8 @@ import eu.esmo.sessionmng.model.dao.SessionRepository;
 import eu.esmo.sessionmng.model.dmo.MngrSession;
 import eu.esmo.sessionmng.pojo.AttributeSet;
 import eu.esmo.sessionmng.pojo.AttributeType;
+import eu.esmo.sessionmng.pojo.RequestParameters;
+import eu.esmo.sessionmng.pojo.SessionMngrResponse;
 import eu.esmo.sessionmng.pojo.UpdateDataRequest;
 import eu.esmo.sessionmng.service.HttpSignatureService;
 import eu.esmo.sessionmng.service.SessionService;
@@ -40,6 +42,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import org.springframework.test.web.servlet.result.MockMvcResultHandlers;
@@ -67,6 +70,47 @@ public class TestRestControllers {
 
     @MockBean
     private SessionRepository sessionRep;
+
+    @Test
+    public void testGenerateTokenWithPayload() throws Exception {
+        Date date = new Date();
+        SimpleDateFormat formatter = new SimpleDateFormat("EEE, d MMM YYYY HH:mm:ss z", Locale.US);
+        formatter.setTimeZone(TimeZone.getTimeZone("GMT"));
+        String nowDate = formatter.format(date);
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest("".getBytes());
+        String requestId = UUID.randomUUID().toString();
+
+        MvcResult result = mvc.perform(post("/sm/startSession")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/startSession", null, "application/x-www-form-urlencoded", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/x-www-form-urlencoded"))
+                .andDo(MockMvcResultHandlers.print())
+                .andReturn();
+        ObjectMapper mapper = new ObjectMapper();
+        SessionMngrResponse resp = mapper.readValue(result.getResponse().getContentAsString(), SessionMngrResponse.class);
+        String sessionId = resp.getSessionData().getSessionId();
+
+        RequestParameters update = new RequestParameters("data", "id", sessionId, "type");
+        String updateString = mapper.writeValueAsString(update);
+        digest = MessageDigest.getInstance("SHA-256").digest(updateString.getBytes());
+
+        result = mvc.perform(post("/sm/generateTokenWithPayload?sessionId=" + sessionId + "&sender=sender&receiver=receiver")
+                .header("authorization", sigServ.generateSignature("hostUrl", "POST", "/sm/generateTokenWithPayload?sessionId=" + sessionId + "&sender=sender&receiver=receiver", update, "application/json", requestId))
+                .header("host", "hostUrl")
+                .header("original-date", nowDate)
+                .header("digest", "SHA-256=" + new String(org.tomitribe.auth.signatures.Base64.encodeBase64(digest)))
+                .header("x-request-id", requestId)
+                .header("content-type", "application/json")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateString.getBytes())
+        )
+                .andDo(MockMvcResultHandlers.print())
+                .andReturn();
+
+    }
 
     @Test
     public void testGetSessionDataNoVariableName() throws Exception {
